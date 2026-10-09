@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Correlation Coefficient Sensitivity & Regression Diagnostics</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700;800&display=swap');
+        
+        body { 
+            background-color: #0b0f19; 
+            color: #f3f4f6; 
+            font-family: 'Inter', system-ui, -apple-system, sans-serif; 
+        }
+        
+        .font-mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .card { 
+            background-color: #111827; 
+            border: 1px solid #1f2937; 
+            border-radius: 0.85rem; 
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4);
+        }
+
+        .subscript { 
+            vertical-align: sub; 
+            font-size: 0.72em; 
+            line-height: 0;
+        }
+
+        .superscript { 
+            vertical-align: super; 
+            font-size: 0.72em; 
+            line-height: 0;
+        }
+
+        canvas {
+            touch-action: none;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-6 min-h-screen flex flex-col justify-between">
+    <div class="max-w-7xl mx-auto w-full space-y-6">
+        
+        <!-- Header Section -->
+        <header class="border-b border-gray-800 pb-4">
+            <h1 class="text-2xl md:text-3xl font-extrabold text-white flex items-center gap-2">
+                <span class="text-amber-400">📊</span> Correlation Coefficient Sensitivity & Regression Diagnostics
+            </h1>
+            <p class="text-gray-400 text-sm mt-1">
+                Interactively drag candidate point <span class="text-amber-400 font-bold">P<sub>1</sub></span> or baseline points to explore correlation shifts (|r| Increase vs |r| Decrease) and diagnostic classifications.
+            </p>
+        </header>
+
+        <!-- Main Interactive Workspace Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- Left Column: Preset Toolbar, Scatter Plot, Heatmap Controls & Legend -->
+            <div class="lg:col-span-7 flex flex-col gap-4">
+                
+                <!-- TOOLBAR: Placed in left column directly above scatter plot and to the left of Correlation Shift Impact -->
+                <div class="card p-3.5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-gray-900/90 border-amber-500/20">
+                    <div class="flex items-center gap-2.5 flex-wrap">
+                        <label for="presetSelect" class="text-xs font-bold text-gray-300 uppercase tracking-wider whitespace-nowrap flex items-center gap-1.5">
+                            <span>📂</span> DATASET PRESET:
+                        </label>
+                        <select id="presetSelect" class="bg-gray-800 border border-gray-700 text-gray-100 text-xs sm:text-sm font-semibold rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-amber-500 focus:outline-none cursor-pointer transition">
+                            <option value="moderate" selected>Moderate Positive (r ≈ 0.75)</option>
+                            <option value="strong">Strong Positive (r ≈ 0.90)</option>
+                            <option value="zero">Near Zero (r ≈ 0.00)</option>
+                            <option value="negative">Strong Negative (r ≈ -0.90)</option>
+                            <option value="perfect">Near Perfect (r ≈ 0.99)</option>
+                        </select>
+                    </div>
+
+                    <button id="resetBtn" class="bg-gray-800 hover:bg-gray-700 active:bg-gray-600 text-amber-300 border border-gray-700 font-bold text-xs px-3.5 py-1.5 rounded-lg transition active:scale-95 flex items-center justify-center gap-1.5 whitespace-nowrap shadow-sm">
+                        <span>↩️</span> Reset P<sub>1</sub>
+                    </button>
+                </div>
+
+                <div class="card p-4 flex flex-col items-center relative">
+                    <!-- Canvas Container -->
+                    <div class="relative w-full aspect-square max-w-[560px]">
+                        <!-- Background Heatmap Layer -->
+                        <canvas id="heatmapCanvas" class="absolute inset-0 w-full h-full rounded-lg pointer-events-none opacity-60"></canvas>
+                        <!-- Interactive Scatter & Line Drawing Layer -->
+                        <canvas id="plotCanvas" class="absolute inset-0 w-full h-full rounded-lg cursor-crosshair"></canvas>
+                    </div>
+
+                    <!-- Unobstructed Legend Bar Below Canvas -->
+                    <div class="w-full mt-4 pt-3 border-t border-gray-800 flex flex-wrap items-center justify-center gap-5 text-xs sm:text-sm">
+                        <div class="flex items-center gap-2">
+                            <span class="w-3.5 h-3.5 rounded-full bg-sky-400 inline-block border border-sky-200 shadow-sm"></span>
+                            <span class="text-gray-300 font-medium">Baseline Points</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="w-4 h-4 rounded-full bg-amber-400 border-2 border-amber-200 inline-block shadow-sm"></span>
+                            <span class="text-amber-300 font-bold">Candidate P<sub>1</sub></span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="w-6 h-0.5 bg-amber-400 inline-block rounded"></span>
+                            <span class="text-gray-300 font-medium">Active Line (with P<sub>1</sub>)</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="w-6 h-0.5 border-b-2 border-dashed border-sky-400 inline-block"></span>
+                            <span class="text-gray-300 font-medium">Base Line (without P<sub>1</sub>)</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Heatmap Controls & Color Indicator -->
+                <div class="card p-4 flex flex-wrap items-center justify-between gap-4 text-xs text-gray-400">
+                    <div class="flex items-center gap-3">
+                        <label for="opacitySlider" class="font-semibold text-gray-300 text-xs sm:text-sm">Heatmap Opacity:</label>
+                        <input type="range" id="opacitySlider" min="0" max="1" step="0.05" value="0.60" class="w-28 sm:w-32 accent-emerald-500 cursor-pointer">
+                    </div>
+                    <div class="flex items-center gap-4 text-xs sm:text-sm font-medium">
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-3.5 h-3.5 rounded bg-emerald-500/70 inline-block border border-emerald-400/50"></span>
+                            <span class="text-emerald-300">Stronger |r|</span>
+                        </div>
+                        <div class="flex items-center gap-1.5">
+                            <span class="w-3.5 h-3.5 rounded bg-rose-500/70 inline-block border border-rose-400/50"></span>
+                            <span class="text-rose-300">Weaker |r|</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Diagnostics & Shift Impact Panel -->
+            <div class="lg:col-span-5 flex flex-col gap-6">
+                
+                <!-- Section 1: Correlation Shift Impact -->
+                <div class="card p-5 space-y-4">
+                    <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+                        <h2 class="text-sm sm:text-base font-bold text-white tracking-wide uppercase flex items-center gap-2">
+                            <span>📈</span> CORRELATION SHIFT IMPACT
+                        </h2>
+                        <span id="shiftBadge" class="px-3 py-1 text-xs font-extrabold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                            Strength Increased
+                        </span>
+                    </div>
+
+                    <!-- Metrics Display Grid -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <!-- Baseline Statistics Box -->
+                        <div class="bg-gray-900/90 border border-gray-800 rounded-lg p-3.5 space-y-2">
+                            <span class="text-xs font-bold text-gray-400 uppercase tracking-wider block">BASELINE (WITHOUT P<sub>1</sub>)</span>
+                            <div class="flex items-baseline justify-between">
+                                <span class="text-sm text-gray-300 font-semibold">r<sub>base</sub>:</span>
+                                <span id="rBaseVal" class="text-xl sm:text-2xl font-extrabold font-mono text-sky-400">+0.750</span>
+                            </div>
+                            <div class="flex items-baseline justify-between border-t border-gray-800/80 pt-2">
+                                <span class="text-xs text-gray-400 font-medium">R<sup>2</sup><sub>base</sub>:</span>
+                                <span id="r2BaseVal" class="text-base font-bold font-mono text-gray-300">0.563</span>
+                            </div>
+                        </div>
+
+                        <!-- Active Statistics Box -->
+                        <div class="bg-gray-900/90 border border-gray-800 rounded-lg p-3.5 space-y-2">
+                            <span class="text-xs font-bold text-amber-400 uppercase tracking-wider block">ACTIVE (WITH P<sub>1</sub>)</span>
+                            <div class="flex items-baseline justify-between">
+                                <span class="text-sm text-amber-300 font-semibold">r<sub>active</sub>:</span>
+                                <span id="rActiveVal" class="text-xl sm:text-2xl font-extrabold font-mono text-amber-400">+0.785</span>
+                            </div>
+                            <div class="flex items-baseline justify-between border-t border-gray-800/80 pt-2">
+                                <span class="text-xs text-gray-400 font-medium">R<sup>2</sup><sub>active</sub>:</span>
+                                <span id="r2ActiveVal" class="text-base font-bold font-mono text-gray-300">0.616</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Delta |r| Summary Readout -->
+                    <div class="bg-gray-900/90 border border-gray-800 rounded-lg p-4 flex items-center justify-between">
+                        <div>
+                            <span class="text-sm sm:text-base font-bold text-gray-200 block">Correlation Magnitude Shift (Δ|r|)</span>
+                            <span class="text-xs text-gray-400 font-mono">|r<sub>active</sub>| − |r<sub>base</sub>|</span>
+                        </div>
+                        <span id="deltaRVal" class="text-2xl sm:text-3xl font-black font-mono text-emerald-400">+0.035</span>
+                    </div>
+
+                    <!-- Summary Sentence -->
+                    <p id="summaryText" class="text-xs sm:text-sm text-gray-300 bg-gray-800/40 border border-gray-800 p-3 rounded-lg leading-relaxed">
+                        Placing P<sub>1</sub> strengthens correlation magnitude.
+                    </p>
+                </div>
+
+                <!-- Section 2: P1 Diagnostic Classification -->
+                <div class="card p-5 space-y-4">
+                    <div class="flex items-center justify-between border-b border-gray-800 pb-3">
+                        <h2 class="text-sm sm:text-base font-bold text-white tracking-wide uppercase flex items-center gap-2">
+                            <span>🔍</span> P<sub>1</sub> DIAGNOSTIC CLASSIFICATION
+                        </h2>
+                        <span id="p1PosBadge" class="text-xs font-mono bg-gray-800 text-amber-300 px-2.5 py-1 rounded-md border border-gray-700 font-semibold">
+                            P<sub>1</sub> = (17.0, 16.0)
+                        </span>
+                    </div>
+
+                    <!-- Student-Friendly Diagnostic Cards -->
+                    <div class="space-y-3">
+                        <!-- Card 1: Outlier -->
+                        <div id="cardOutlier" class="bg-gray-900/80 border border-gray-800 rounded-lg p-4 flex items-center justify-between transition-all">
+                            <div class="flex items-center gap-3.5">
+                                <div id="iconOutlier" class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-lg font-bold text-gray-500 shrink-0">
+                                    ✖
+                                </div>
+                                <div>
+                                    <h3 class="text-sm sm:text-base font-bold text-white">Outlier</h3>
+                                    <p class="text-xs text-gray-400 mt-0.5">Large vertical residual distance from regression line</p>
+                                </div>
+                            </div>
+                            <span id="badgeOutlier" class="px-3.5 py-1 rounded-full text-xs font-extrabold bg-gray-800 text-gray-400 border border-gray-700 shrink-0">
+                                No
+                            </span>
+                        </div>
+
+                        <!-- Card 2: High Leverage Point -->
+                        <div id="cardLeverage" class="bg-gray-900/80 border border-gray-800 rounded-lg p-4 flex items-center justify-between transition-all">
+                            <div class="flex items-center gap-3.5">
+                                <div id="iconLeverage" class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-lg font-bold text-gray-500 shrink-0">
+                                    ✖
+                                </div>
+                                <div>
+                                    <h3 class="text-sm sm:text-base font-bold text-white">High Leverage Point</h3>
+                                    <p class="text-xs text-gray-400 mt-0.5">Extreme horizontal position on X-axis</p>
+                                </div>
+                            </div>
+                            <span id="badgeLeverage" class="px-3.5 py-1 rounded-full text-xs font-extrabold bg-gray-800 text-gray-400 border border-gray-700 shrink-0">
+                                No
+                            </span>
+                        </div>
+
+                        <!-- Card 3: Influential Point -->
+                        <div id="cardInfluence" class="bg-gray-900/80 border border-gray-800 rounded-lg p-4 flex items-center justify-between transition-all">
+                            <div class="flex items-center gap-3.5">
+                                <div id="iconInfluence" class="w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-lg font-bold text-gray-500 shrink-0">
+                                    ✖
+                                </div>
+                                <div>
+                                    <h3 class="text-sm sm:text-base font-bold text-white">Influential Point</h3>
+                                    <p class="text-xs text-gray-400 mt-0.5">Significantly alters regression line slope</p>
+                                </div>
+                            </div>
+                            <span id="badgeInfluence" class="px-3.5 py-1 rounded-full text-xs font-extrabold bg-gray-800 text-gray-400 border border-gray-700 shrink-0">
+                                No
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- JavaScript Application Logic -->
+    <script>
+        // Five Diverse Preset Datasets
+        const PRESETS = {
+            moderate: {
+                // Target r ≈ +0.75
+                pts: [{x:3, y:10.5}, {x:5, y:7.9}, {x:7, y:6.9}, {x:9, y:10.9}, {x:11, y:16.9}, {x:13, y:12.1}, {x:15, y:18.0}],
+                p1Default: {x: 17, y: 16}
+            },
+            strong: {
+                // Target r ≈ +0.90
+                pts: [{x:3, y:4.6}, {x:5, y:8.8}, {x:7, y:11.6}, {x:9, y:12.5}, {x:11, y:15.3}, {x:13, y:18.0}, {x:15, y:14.5}],
+                p1Default: {x: 17, y: 17}
+            },
+            zero: {
+                // Target r ≈ 0.00
+                pts: [{x:3, y:7.8}, {x:5, y:14.5}, {x:7, y:6.9}, {x:9, y:15.0}, {x:11, y:4.4}, {x:13, y:13.5}, {x:15, y:7.3}],
+                p1Default: {x: 17, y: 16}
+            },
+            negative: {
+                // Target r ≈ -0.90
+                pts: [{x:3, y:16.0}, {x:5, y:12.0}, {x:7, y:13.5}, {x:9, y:8.5}, {x:11, y:10.0}, {x:13, y:5.0}, {x:15, y:6.5}],
+                p1Default: {x: 17, y: 3}
+            },
+            perfect: {
+                // Target r ≈ +0.99
+                pts: [{x:3, y:3.5}, {x:5, y:5.5}, {x:7, y:7.5}, {x:9, y:9.5}, {x:11, y:11.5}, {x:13, y:13.5}, {x:15, y:15.5}],
+                p1Default: {x: 17, y: 17.5}
+            }
+        };
+
+        let currentPresetKey = 'moderate';
+        let basePoints = JSON.parse(JSON.stringify(PRESETS[currentPresetKey].pts));
+        let p1 = { ...PRESETS[currentPresetKey].p1Default };
+
+        // Canvas Elements & Contexts
+        const plotCanvas = document.getElementById('plotCanvas');
+        const ctx = plotCanvas.getContext('2d');
+        const heatCanvas = document.getElementById('heatmapCanvas');
+        const heatCtx = heatCanvas.getContext('2d');
+
+        // Offscreen Canvas for Precise Heatmap Alignment
+        const GRID_RES = 80;
+        const offscreenCanvas = document.createElement('canvas');
+        offscreenCanvas.width = GRID_RES;
+        offscreenCanvas.height = GRID_RES;
+        const offscreenCtx = offscreenCanvas.getContext('2d');
+
+        let isDragging = false;
+        let dragTarget = null; // 'p1' or index of base point
+
+        // Coordinate Plane Domain & Padding Constants
+        const DOMAIN = [0, 20];
+        const PADDING = 40; // Logical padding in CSS pixels
+
+        let cssWidth = 0;
+        let cssHeight = 0;
+        let plotWidth = 0;
+        let plotHeight = 0;
+        let dpr = 1;
+
+        function resizeCanvases() {
+            const rect = plotCanvas.parentElement.getBoundingClientRect();
+            cssWidth = rect.width;
+            cssHeight = rect.height;
+            dpr = window.devicePixelRatio || 1;
+
+            plotWidth = cssWidth - 2 * PADDING;
+            plotHeight = cssHeight - 2 * PADDING;
+
+            // Scale canvases for high DPI displays
+            plotCanvas.width = Math.floor(cssWidth * dpr);
+            plotCanvas.height = Math.floor(cssHeight * dpr);
+
+            heatCanvas.width = Math.floor(cssWidth * dpr);
+            heatCanvas.height = Math.floor(cssHeight * dpr);
+
+            render();
+        }
+
+        // Logical Data Coordinate to Logical CSS Pixel Conversion
+        function toPx(x, y) {
+            const px = PADDING + (x / DOMAIN[1]) * plotWidth;
+            const py = cssHeight - PADDING - (y / DOMAIN[1]) * plotHeight;
+            return { x: px, y: py };
+        }
+
+        // Logical CSS Pixel to Logical Data Coordinate Conversion
+        function toData(px, py) {
+            const x = ((px - PADDING) / plotWidth) * DOMAIN[1];
+            const y = (((cssHeight - py) - PADDING) / plotHeight) * DOMAIN[1];
+            return { 
+                x: Math.max(0.2, Math.min(19.8, x)), 
+                y: Math.max(0.2, Math.min(19.8, y)) 
+            };
+        }
+
+        // Compute Correlation Coefficient & OLS Slope/Intercept
+        function computeStats(points) {
+            const n = points.length;
+            if (n < 2) return { r: 0, r2: 0, slope: 0, intercept: 0, meanX: 0, meanY: 0, ssxx: 0, ssyy: 0 };
+
+            let sumX = 0, sumY = 0;
+            points.forEach(p => { sumX += p.x; sumY += p.y; });
+            const meanX = sumX / n;
+            const meanY = sumY / n;
+
+            let ssxx = 0, ssyy = 0, ssxy = 0;
+            points.forEach(p => {
+                const dx = p.x - meanX;
+                const dy = p.y - meanY;
+                ssxx += dx * dx;
+                ssyy += dy * dy;
+                ssxy += dx * dy;
+            });
+
+            const denom = Math.sqrt(ssxx * ssyy);
+            const r = denom === 0 ? 0 : ssxy / denom;
+            const slope = ssxx === 0 ? 0 : ssxy / ssxx;
+            const intercept = meanY - slope * meanX;
+
+            return { r, r2: r * r, slope, intercept, meanX, meanY, ssxx, ssyy, n };
+        }
+
+        // Diagnostic Calculations for Outlier, Leverage, and Influence
+        function computeDiagnostics(basePts, candidate) {
+            const allPts = [...basePts, candidate];
+            const stats = computeStats(allPts);
+            const n = allPts.length;
+
+            // Leverage h11 for candidate P1
+            const dx = candidate.x - stats.meanX;
+            const h11 = (1 / n) + (stats.ssxx > 0 ? (dx * dx) / stats.ssxx : 0);
+
+            // Residual e1
+            const yHat = stats.slope * candidate.x + stats.intercept;
+            const e1 = candidate.y - yHat;
+
+            // Sum of Squared Errors (SSE)
+            let sse = 0;
+            allPts.forEach(p => {
+                const pred = stats.slope * p.x + stats.intercept;
+                const err = p.y - pred;
+                sse += err * err;
+            });
+
+            const df = n - 2;
+            const mse = df > 0 ? sse / df : 0.001;
+            const seEst = Math.sqrt(Math.max(0.0001, mse * (1 - h11)));
+            const t1 = seEst > 0 ? e1 / seEst : 0; // Standardized residual
+
+            // Cook's Distance
+            const denomCook = Math.max(0.0001, 1 - h11);
+            const cookD = (t1 * t1 / 2) * (h11 / denomCook);
+
+            return {
+                stats,
+                h11,
+                e1,
+                t1,
+                cookD,
+                isOutlier: Math.abs(t1) > 2.0,
+                isHighLeverage: h11 > (4 / n),
+                isInfluential: cookD > (4 / n)
+            };
+        }
+
+        // Offscreen Heatmap Rendering Engine
+        function renderHeatmap(baseStats) {
+            const imgData = offscreenCtx.createImageData(GRID_RES, GRID_RES);
+            const baseAbsR = Math.abs(baseStats.r);
+            const opacity = parseFloat(document.getElementById('opacitySlider').value);
+
+            // Compute delta |r| for every grid cell on offscreen canvas
+            for (let gy = 0; gy < GRID_RES; gy++) {
+                // gy = 0 corresponds to top (y = 20), gy = GRID_RES-1 corresponds to bottom (y = 0)
+                const yVal = DOMAIN[1] * (1 - gy / (GRID_RES - 1));
+                
+                for (let gx = 0; gx < GRID_RES; gx++) {
+                    const xVal = DOMAIN[1] * (gx / (GRID_RES - 1));
+                    
+                    const testPts = [...basePoints, { x: xVal, y: yVal }];
+                    const testStats = computeStats(testPts);
+                    const deltaAbsR = Math.abs(testStats.r) - baseAbsR;
+
+                    const pIdx = (gy * GRID_RES + gx) * 4;
+                    const intensity = Math.min(1, Math.abs(deltaAbsR) * 3.5) * opacity;
+
+                    if (deltaAbsR > 0) {
+                        // Green: Increased correlation magnitude
+                        imgData.data[pIdx] = 16;
+                        imgData.data[pIdx + 1] = 185;
+                        imgData.data[pIdx + 2] = 129;
+                        imgData.data[pIdx + 3] = Math.floor(intensity * 255);
+                    } else {
+                        // Red: Decreased correlation magnitude
+                        imgData.data[pIdx] = 244;
+                        imgData.data[pIdx + 1] = 63;
+                        imgData.data[pIdx + 2] = 94;
+                        imgData.data[pIdx + 3] = Math.floor(intensity * 255);
+                    }
+                }
+            }
+
+            // Put image data into offscreen canvas
+            offscreenCtx.putImageData(imgData, 0, 0);
+
+            // Render onto visible heatmap canvas scaled exactly inside grid padding
+            heatCtx.clearRect(0, 0, heatCanvas.width, heatCanvas.height);
+            heatCtx.save();
+            heatCtx.scale(dpr, dpr);
+            heatCtx.imageSmoothingEnabled = true;
+            heatCtx.drawImage(
+                offscreenCanvas, 
+                0, 0, GRID_RES, GRID_RES, 
+                PADDING, PADDING, plotWidth, plotHeight
+            );
+            heatCtx.restore();
+        }
+
+        // Main Canvas Drawing Routine
+        function render() {
+            if (cssWidth <= 0 || cssHeight <= 0) return;
+
+            // Clear plot canvas
+            ctx.clearRect(0, 0, plotCanvas.width, plotCanvas.height);
+            ctx.save();
+            ctx.scale(dpr, dpr);
+
+            // Compute statistics
+            const baseStats = computeStats(basePoints);
+            const diag = computeDiagnostics(basePoints, p1);
+            const activeStats = diag.stats;
+
+            // Render synchronized heatmap
+            renderHeatmap(baseStats);
+
+            // Draw Coordinate Grid Lines & Axis Ticks
+            ctx.strokeStyle = '#1f2937';
+            ctx.lineWidth = 1;
+            for (let v = 0; v <= 20; v += 4) {
+                const pX = toPx(v, 0);
+                const pY = toPx(0, v);
+
+                // Vertical Grid Line
+                ctx.beginPath();
+                ctx.moveTo(pX.x, PADDING);
+                ctx.lineTo(pX.x, cssHeight - PADDING);
+                ctx.stroke();
+
+                // Horizontal Grid Line
+                ctx.beginPath();
+                ctx.moveTo(PADDING, pY.y);
+                ctx.lineTo(cssWidth - PADDING, pY.y);
+                ctx.stroke();
+
+                // Tick Labels
+                ctx.fillStyle = '#9ca3af';
+                ctx.font = '500 11px Inter, system-ui';
+                ctx.textAlign = 'center';
+                ctx.fillText(v.toString(), pX.x, cssHeight - PADDING + 18);
+
+                ctx.textAlign = 'right';
+                ctx.fillText(v.toString(), PADDING - 10, pY.y + 4);
+            }
+
+            // Draw Axis Border Outline
+            ctx.strokeStyle = '#374151';
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(PADDING, PADDING, plotWidth, plotHeight);
+
+            // Draw Base Regression Line (Dashed Sky Blue)
+            if (basePoints.length >= 2) {
+                const pMin = toPx(0, baseStats.slope * 0 + baseStats.intercept);
+                const pMax = toPx(20, baseStats.slope * 20 + baseStats.intercept);
+
+                ctx.save();
+                ctx.strokeStyle = '#38bdf8';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([6, 6]);
+                ctx.beginPath();
+                ctx.moveTo(pMin.x, pMin.y);
+                ctx.lineTo(pMax.x, pMax.y);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            // Draw Active Regression Line (Solid Amber)
+            const aMin = toPx(0, activeStats.slope * 0 + activeStats.intercept);
+            const aMax = toPx(20, activeStats.slope * 20 + activeStats.intercept);
+
+            ctx.strokeStyle = '#f59e0b';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(aMin.x, aMin.y);
+            ctx.lineTo(aMax.x, aMax.y);
+            ctx.stroke();
+
+            // Draw Baseline Blue Points
+            basePoints.forEach(p => {
+                const pos = toPx(p.x, p.y);
+                ctx.fillStyle = '#38bdf8';
+                ctx.strokeStyle = '#e0f2fe';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, 6.5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+            });
+
+            // Draw Candidate Point P1 (Amber Dot with Glowing Ring)
+            const p1Pos = toPx(p1.x, p1.y);
+            ctx.fillStyle = '#f59e0b';
+            ctx.strokeStyle = '#fef3c7';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(p1Pos.x, p1Pos.y, 9, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+
+            // P1 Outer Ring Halo
+            ctx.strokeStyle = 'rgba(245, 158, 11, 0.45)';
+            ctx.lineWidth = 2.5;
+            ctx.beginPath();
+            ctx.arc(p1Pos.x, p1Pos.y, 15, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.restore();
+
+            // Update Panel Displays
+            updateUI(baseStats, activeStats, diag);
+        }
+
+        // Dynamic UI Synchronizer
+        function updateUI(baseStats, activeStats, diag) {
+            // Numbers & Equations typography
+            document.getElementById('rBaseVal').innerText = (baseStats.r >= 0 ? '+' : '') + baseStats.r.toFixed(3);
+            document.getElementById('r2BaseVal').innerText = baseStats.r2.toFixed(3);
+
+            document.getElementById('rActiveVal').innerText = (activeStats.r >= 0 ? '+' : '') + activeStats.r.toFixed(3);
+            document.getElementById('r2ActiveVal').innerText = activeStats.r2.toFixed(3);
+
+            const deltaAbsR = Math.abs(activeStats.r) - Math.abs(baseStats.r);
+            const deltaElem = document.getElementById('deltaRVal');
+            deltaElem.innerText = (deltaAbsR >= 0 ? '+' : '') + deltaAbsR.toFixed(3);
+
+            const shiftBadge = document.getElementById('shiftBadge');
+            if (deltaAbsR > 0) {
+                deltaElem.className = "text-2xl sm:text-3xl font-black font-mono text-emerald-400";
+                shiftBadge.className = "px-3 py-1 text-xs font-extrabold rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+                shiftBadge.innerText = "Strength Increased";
+            } else {
+                deltaElem.className = "text-2xl sm:text-3xl font-black font-mono text-rose-400";
+                shiftBadge.className = "px-3 py-1 text-xs font-extrabold rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30";
+                shiftBadge.innerText = "Strength Decreased";
+            }
+
+            document.getElementById('p1PosBadge').innerHTML = `P<sub>1</sub> = (${p1.x.toFixed(1)}, ${p1.y.toFixed(1)})`;
+
+            document.getElementById('summaryText').innerHTML = 
+                `Placing P<sub>1</sub> at (${p1.x.toFixed(1)}, ${p1.y.toFixed(1)}) ` +
+                (deltaAbsR >= 0 ? `strengthens correlation magnitude from <b>${Math.abs(baseStats.r).toFixed(3)}</b> up to <b>${Math.abs(activeStats.r).toFixed(3)}</b>.`
+                                : `dilutes correlation magnitude down from <b>${Math.abs(baseStats.r).toFixed(3)}</b> to <b>${Math.abs(activeStats.r).toFixed(3)}</b>.`);
+
+            // Simplified Diagnostic Cards
+            updateDiagnosticCard('Outlier', diag.isOutlier);
+            updateDiagnosticCard('Leverage', diag.isHighLeverage);
+            updateDiagnosticCard('Influence', diag.isInfluential);
+        }
+
+        // Diagnostic Card Renderer
+        function updateDiagnosticCard(key, isTrue) {
+            const card = document.getElementById(`card${key}`);
+            const icon = document.getElementById(`icon${key}`);
+            const badge = document.getElementById(`badge${key}`);
+
+            if (isTrue) {
+                card.className = "bg-emerald-950/30 border border-emerald-500/40 rounded-lg p-4 flex items-center justify-between transition-all shadow-sm";
+                icon.className = "w-10 h-10 rounded-full bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-center text-lg font-bold text-emerald-400 shrink-0";
+                icon.innerText = "✔";
+                badge.className = "px-3.5 py-1 rounded-full text-xs font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shrink-0";
+                badge.innerText = "Yes";
+            } else {
+                card.className = "bg-gray-900/80 border border-gray-800 rounded-lg p-4 flex items-center justify-between transition-all";
+                icon.className = "w-10 h-10 rounded-full bg-gray-800 border border-gray-700 flex items-center justify-center text-lg font-bold text-gray-500 shrink-0";
+                icon.innerText = "✖";
+                badge.className = "px-3.5 py-1 rounded-full text-xs font-extrabold bg-gray-800 text-gray-400 border border-gray-700 shrink-0";
+                badge.innerText = "No";
+            }
+        }
+
+        // Event Coordinate Extraction (CSS Pixels)
+        function getEventCssPos(e) {
+            const rect = plotCanvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return {
+                x: clientX - rect.left,
+                y: clientY - rect.top
+            };
+        }
+
+        function handleStart(e) {
+            const pos = getEventCssPos(e);
+            const p1Pos = toPx(p1.x, p1.y);
+            const distP1 = Math.hypot(pos.x - p1Pos.x, pos.y - p1Pos.y);
+
+            const hitRadius = 24; // Drag hit radius in CSS pixels
+
+            if (distP1 < hitRadius) {
+                isDragging = true;
+                dragTarget = 'p1';
+                plotCanvas.style.cursor = 'grabbing';
+                return;
+            }
+
+            for (let i = 0; i < basePoints.length; i++) {
+                const bPos = toPx(basePoints[i].x, basePoints[i].y);
+                if (Math.hypot(pos.x - bPos.x, pos.y - bPos.y) < hitRadius) {
+                    isDragging = true;
+                    dragTarget = i;
+                    plotCanvas.style.cursor = 'grabbing';
+                    return;
+                }
+            }
+        }
+
+        function handleMove(e) {
+            if (!isDragging || dragTarget === null) return;
+            e.preventDefault();
+            const pos = getEventCssPos(e);
+            const dataPos = toData(pos.x, pos.y);
+
+            if (dragTarget === 'p1') {
+                p1 = dataPos;
+            } else {
+                basePoints[dragTarget] = dataPos;
+            }
+            render();
+        }
+
+        function handleEnd() {
+            isDragging = false;
+            dragTarget = null;
+            plotCanvas.style.cursor = 'crosshair';
+        }
+
+        // Attach Mouse & Touch Event Listeners
+        plotCanvas.addEventListener('mousedown', handleStart);
+        window.addEventListener('mousemove', handleMove);
+        window.addEventListener('mouseup', handleEnd);
+
+        plotCanvas.addEventListener('touchstart', handleStart, { passive: false });
+        window.addEventListener('touchmove', handleMove, { passive: false });
+        window.addEventListener('touchend', handleEnd);
+
+        // Control Inputs
+        document.getElementById('opacitySlider').addEventListener('input', render);
+
+        document.getElementById('presetSelect').addEventListener('change', (e) => {
+            currentPresetKey = e.target.value;
+            basePoints = JSON.parse(JSON.stringify(PRESETS[currentPresetKey].pts));
+            p1 = { ...PRESETS[currentPresetKey].p1Default };
+            render();
+        });
+
+        document.getElementById('resetBtn').addEventListener('click', () => {
+            p1 = { ...PRESETS[currentPresetKey].p1Default };
+            render();
+        });
+
+        // Window Resize Initialization
+        window.addEventListener('resize', resizeCanvases);
+        window.onload = function() {
+            resizeCanvases();
+        };
+    </script>
+</body>
+</html>
